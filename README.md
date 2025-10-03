@@ -1,60 +1,40 @@
+
 # App de Dosagem ABCP (Streamlit)
 
-Este app reproduz a lógica principal de dosagem de concreto pelo método **ABCP**,
-com entradas agrupadas, resultados automáticos e uma aba de **tabelas** (somente leitura)
-para consulta. Preparado para rodar localmente ou no **Streamlit Cloud** a partir de um repositório GitHub.
+Agora com:
+- **Lookup automático do Ca** (L/m³) via seu Excel (named ranges: `Tabela2Ca`, `Tabela2Dmax`, `Tabela2Slump`).
+- **Absorção (areia/brita)** e **umidade** para separar **água livre** vs **absorvida**.
+- **Geração de PDF** do traço com cabeçalhos de identificação.
+- Aba de **tabelas (somente leitura)** para consulta do Excel.
 
-## 📦 Estrutura
-```text
+## Estrutura
+```
 abcp_streamlit_app/
-├── app.py                 # Aplicativo Streamlit (tabs: Dosagem e Tabelas)
+├── app.py
 ├── core/
-│   └── abcp.py            # Cálculos e leitura de prévias das tabelas
+│   ├── abcp.py         # Cálculo + lookup de Ca
+│   └── pdf_utils.py    # PDF (ReportLab)
 ├── data/
-│   ├── 04_Dosagem_Concreto_ABCP_sem-leg.xlsx   # (coloque aqui seu Excel)
+│   ├── 04_Dosagem_Concreto_ABCP_sem-leg.xlsx   # (opcional)
 │   └── README_DATA.txt
 ├── requirements.txt
 └── README.md
 ```
 
-## ▶️ Como rodar localmente
+## Rodar localmente
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## 🔧 Entradas e lógica (resumo)
-- **N33 (L/m³)** → entrada `Consumo de Água (Tabela 2) — L/m³`.
-- **P33 (kg/m³)** = N33 × ρ_água / 1000 (ρ_água editável).
-- **Cc (kg/m³)** = max( P33 / (a/c), Cc_min ).
-- **Volumes absolutos**: V_c = Cc/ρ_c; V_w = P33/ρ_w; V_g = Σ(Cb_i/ρ_b_i).
-- **Vm** = 1 − (V_c + V_w + V_g).
-- **Cm (seca)** = Vm × ρ_areia(grão).
-- **Umidade** U% (base seca): Cm(úmida) = Cm(seca) × (1+U); Água na areia = Cm(úmida) − Cm(seca).
-- **Água a adicionar (kg/m³)** = P33 − Água na areia.
-- **Volume p/ obra**: V_areia(seca, aparente) = Cm(seca)/ρ_areia(aparente); com inchamento I%: ×(1+I).
+## Como o Ca é lido
+- O app tenta os named ranges do seu Excel: `Tabela2Ca` (matriz), `Tabela2Dmax` (linhas), `Tabela2Slump` (colunas).
+- Se encontrar, você seleciona Dmáx e Slump e o Ca (L/m³) é preenchido automaticamente.
+- Se não encontrar, use o modo Manual.
 
-> **Importante:** A aba **Tabelas** pode carregar seu Excel (aba *Água - Cimento*, etc.) para consulta visual.
-O cálculo do **Ca** no app é uma entrada manual (L/m³), mantendo a fidelidade dimensional.
-Se quiser automatizar o lookup do Ca a partir da sua planilha, podemos mapear a Tabela 2 no código.
+## Água livre vs absorvida
+- Entradas: `Umidade` e `Absorção` (areia e brita).
+- Fórmula: **Água a adicionar (kg/m³) = P33 + Água absorvida − Água de umidade**.
 
-## 🧾 Campos de Identificação
-Na barra lateral:
-- **Nome do Projeto**
-- **Técnico Responsável**
-- **Tipo de Uso do Concreto**
-- **Fabricado em** (Usina/Canteiro)
-
-Esses campos são exibidos no app e podem ser agregados em relatórios/exportações futuras.
-
-## 🚀 Deploy no Streamlit Cloud
-1. Crie um repositório no GitHub e faça upload desta pasta.
-2. Em *New app*, aponte para `app.py` e selecione o repositório.
-3. Garanta que `requirements.txt` está no repositório.
-4. (Opcional) Coloque seu Excel em `data/` para exibir as tabelas na segunda aba.
-
-## ✅ Próximos incrementos (opcionais)
-- Leitura automática do **Ca** (Tabela 2) do seu Excel.
-- Inclusão de **absorção** de agregados (água livre × absorvida).
-- Geração de **PDF** do traço com cabeçalho (projeto/técnico/uso/fabricação).
-- Aba extra para **verificação de consistência** (Vm>0, limites, etc.).
+## PDF do traço
+- Clique em **Gerar PDF** e baixe o arquivo com os cabeçalhos: Projeto, Técnico, Uso, Fabricado em.
