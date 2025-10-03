@@ -1,10 +1,15 @@
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from core.abcp import compute_abcp
-from core.abcp_tables import load_abcp_tables, lookup_ca_from_tables, lookup_vb_from_tables, lookup_limits_from_tabela1, lookup_sd_from_tabela4
+from core.abcp_tables import (
+    load_abcp_tables,
+    lookup_ca_from_tables,
+    lookup_vb_from_tables,
+    lookup_limits_from_tabela1,
+    lookup_sd_from_tabela4
+)
 from core.pdf_utils import generate_traco_pdf
 
 st.set_page_config(page_title="Dosagem ABCP - Concreto", page_icon="🧮", layout="wide")
@@ -41,32 +46,42 @@ if excel_path is not None:
 
 # --- Aba 1: Dosagem (entradas manuais + resultados por tabelas) ---
 with tab_calc:
+    if not tables:
+        st.info("Carregue o Excel para habilitar as escolhas dirigidas pelas Tabelas 1–5.")
+        st.stop()
+
+    # Build dynamic choices from tables
+    classes_opts = tables["tabela1"]["classes"]
+    tipos_opts = ["CA","CP"]
+    cond_opts = list(tables["tabela4"]["sd"].keys())
+    dmax_opts = tables["tabela2"]["dmax"]
+    slump_opts = tables["tabela2"]["slump"]
+    mf_opts = tables["tabela3"]["mf"]
+
     st.subheader("1) Escolhas dirigidas pelas tabelas")
     colA, colB, colC = st.columns(3)
     with colA:
-        tipo = st.radio("Tipo de Concreto (Tabela 1)", ["CA","CP"], horizontal=True)
-        classe = st.selectbox("Classe de Agressividade (Tabela 1)", ["I","II","III","IV"], index=2)
-        cond = st.radio("Condição de Preparo (Tabela 4)", ["A","B","C"], horizontal=True, index=0)
+        tipo = st.radio("Tipo de Concreto (Tabela 1)", tipos_opts, horizontal=True, index=0)
+        classe = st.selectbox("Classe de Agressividade (Tabela 1)", classes_opts, index=0)
+        cond = st.radio("Condição de Preparo (Tabela 4)", cond_opts, horizontal=True, index=0)
     with colB:
-        dmax = st.selectbox("Dmáx Agregado Graúdo (Tabela 2/5)", [9.5,19.0,25.0,32.0,38.0], index=1)
-        slump = st.selectbox("Abatimento - Slump (Tabela 2)", ["40-60","60-80","80-100"], index=1)
-        # MF é ENTRADA MANUAL (não removemos)
+        dmax = st.selectbox("Dmáx Agregado Graúdo (Tabela 2/5)", dmax_opts, index=0)
+        slump = st.selectbox("Abatimento - Slump (Tabela 2)", slump_opts, index=0)
+        # MF é manual, mas mostramos opções de referência (Tabela 3)
     with colC:
         perc_b_menor = st.slider("% Brita Menor", 0, 100, 50, step=5)
         ac = st.number_input("Fator a/c (projeto)", min_value=0.30, max_value=0.75, value=0.45, step=0.01, format="%.2f")
 
-    # Tabela-driven lookups
-    if not tables:
-        st.stop()
+    # Lookups derivados das tabelas
     limits = lookup_limits_from_tabela1(tables, tipo, classe)     # a/c max, fck_min, cc_min
     sd = lookup_sd_from_tabela4(tables, cond)                     # Sd
     Ca_L_tab = lookup_ca_from_tables(tables, dmax, slump)         # Ca (L/m³)
-    # MF manual:
+
     st.markdown("---")
     st.subheader("2) Entradas NÃO calculadas por tabelas (preencher)")
     colD, colE, colF = st.columns(3)
     with colD:
-        MF = st.number_input("Módulo de Finura da Areia (MF)", min_value=1.50, max_value=3.20, value=2.20, step=0.05, format="%.2f")
+        MF = st.number_input("Módulo de Finura da Areia (MF)", min_value=1.50, max_value=3.20, value=float(mf_opts[0]) if mf_opts else 2.20, step=0.05, format="%.2f")
         U_areia = st.number_input("Umidade da Areia — % (base seca)", 0.0, 12.0, 6.0, 0.1, format="%.1f")
         I_inch = st.number_input("Inchamento da Areia — %", 0.0, 35.0, 20.0, 1.0, format="%.0f")
     with colE:
@@ -89,33 +104,34 @@ with tab_calc:
         rho_b_bulk_media = st.number_input("Massa unitária aparente Brita (média) — kg/m³", 1200.0, 1800.0, 1500.0, 10.0, format="%.0f")
         a_brita = st.number_input("Absorção da Brita — % (total)", 0.0, 5.0, 1.0, 0.1, format="%.1f")
 
-    # Resultados direto das Tabelas
+    # Resultados provenientes das Tabelas
     st.markdown('---')
-    st.subheader("3) Resultados provenientes das Tabelas (automaticamente)")
-    # Ca da Tabela 2
+    st.subheader("3) Resultados provenientes das Tabelas (automáticos)")
+
     if Ca_L_tab is None:
         st.error("Não foi possível obter Ca (L/m³) a partir da Tabela 2. Verifique o Excel/seleções.")
         Ca_L = 200.0
     else:
         Ca_L = float(Ca_L_tab)
-    st.metric("Ca (L/m³) — Tabela 2", f"{Ca_L:.1f}")
 
-    # Vb da Tabela 3 (usa MF manual)
     Vb = lookup_vb_from_tables(tables, MF, dmax)
     if Vb is None:
         st.error("Não foi possível obter Vb (Tabela 3). Verifique MF/Dmáx e o Excel.")
         Vb = 0.70
-    st.metric("Vb (fração volumétrica de brita) — Tabela 3", f"{Vb:.3f}")
 
-    # Limites e Sd
-    st.metric("a/c máximo (Tabela 1)", f"{limits['ac_max']:.2f}")
-    if ac > limits["ac_max"]:
-        st.error("Fator a/c acima do máximo permitido (Tabela 1).")
-    st.metric("Cc mínimo (kg/m³) — Tabela 1", f"{limits['cc_min']:.0f}")
-    st.metric("fck mínimo — Tabela 1 (NBR 8953)", f"C{int(limits['fck_min'])}")
-    st.metric("Desvio Padrão Sd — Tabela 4", f"{sd:.2f} MPa")
-    fck_alvo = limits["fck_min"] + 1.65*sd
-    st.metric("fck alvo (28 dias)", f"{fck_alvo:.1f} MPa")
+    colR0, colR1, colR2, colR3 = st.columns(4)
+    with colR0:
+        st.metric("Ca (L/m³) — Tabela 2", f"{Ca_L:.1f}")
+    with colR1:
+        st.metric("a/c máximo — Tabela 1", f"{limits['ac_max']:.2f}")
+        if ac > limits["ac_max"]:
+            st.error("a/c acima do máximo permitido (Tabela 1).")
+    with colR2:
+        st.metric("Cc mínimo — Tabela 1 (kg/m³)", f"{limits['cc_min']:.0f}")
+        st.metric("fck mínimo — Tabela 1", f"C{int(limits['fck_min'])}")
+    with colR3:
+        st.metric("Sd — Tabela 4 (MPa)", f"{sd:.2f}")
+        st.metric("fck alvo (28d)", f"{(limits['fck_min'] + 1.65*sd):.1f}")
 
     # --- Cálculo do traço (1 m³) ---
     out = compute_abcp(
@@ -164,8 +180,8 @@ with tab_calc:
 
     st.markdown('---')
     st.subheader("4) Resultados (por 1 m³)")
-    colR1, colR2 = st.columns([1.2,1])
-    with colR1:
+    colX1, colX2 = st.columns([1.2,1])
+    with colX1:
         st.markdown("**Massas (kg/m³)**")
         st.table(pd.DataFrame({
             "Grandeza": [
@@ -195,7 +211,7 @@ with tab_calc:
                 round(agua_adicionar_kg,2),
             ]
         }))
-    with colR2:
+    with colX2:
         st.markdown("**Volumes (m³ e L)**")
         st.table(pd.DataFrame({
             "Grandeza": [
